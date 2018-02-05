@@ -8,7 +8,8 @@ from boto.exception import EC2ResponseError
 from boto.mturk.connection import MTurkConnection, MTurkRequestError
 from boto.mturk.question import ExternalQuestion
 from boto.mturk.qualification import LocaleRequirement, \
-    PercentAssignmentsApprovedRequirement, Qualifications
+    PercentAssignmentsApprovedRequirement, Qualifications, \
+    NumberHitsApprovedRequirement, Requirement
 from flask import jsonify
 import re as re
 from psiturk.psiturk_config import PsiturkConfig
@@ -55,6 +56,13 @@ MYSQL_RESERVED_WORDS_CAP = [
 ]
 MYSQL_RESERVED_WORDS = [word.lower() for word in MYSQL_RESERVED_WORDS_CAP]
 
+class MasterRequirement(Requirement):
+    def __init__(self, sandbox=False, required_to_preview=False):
+        comparator = "Exists"
+        sandbox_qualification_type_id = "2ARFPLSP75KLA8M8DH1HTEQVJT3SY6"
+        production_qualification_type_id = "2F1QJWKUDD8XADTFD2Q0G6UTO95ALH"
+        qualification_type_id = production_qualification_type_id if not sandbox else sandbox_qualification_type_id
+        super(MasterRequirement, self).__init__(qualification_type_id=qualification_type_id, comparator=comparator, required_to_preview=required_to_preview)
 
 class MTurkHIT(object):
     ''' Structure for dealing with MTurk HITs '''
@@ -385,13 +393,16 @@ class MTurkServices(object):
             }) for hit in active_hits]
         return hits_data
 
-    def get_workers(self, assignment_status=None):
+    def get_workers(self, assignment_status=None, chosen_hit=None):
         ''' Get workers '''
         if not self.connect_to_turk():
             return False
         try:
-            hits = self.mtc.get_all_hits()
-            hit_ids = [hit.HITId for hit in hits]
+            if chosen_hit:
+                hit_ids = [chosen_hit]
+            else:
+                hits = self.mtc.get_all_hits()
+                hit_ids = [hit.HITId for hit in hits]
            
             workers_nested = []
             page_size=100
@@ -433,6 +444,23 @@ class MTurkServices(object):
         } for worker in workers]
         return worker_data
 
+    def get_worker(self, assignment_id):
+        if not self.connect_to_turk():
+            return False
+        try:
+            worker = self.mtc.get_assignment(assignment_id)[0]
+        except MTurkRequestError as e:
+            return False
+        worker_data = [{
+            'hitId': worker.HITId,
+            'assignmentId': worker.AssignmentId,
+            'workerId': worker.WorkerId,
+            'submit_time': worker.SubmitTime,
+            'accept_time': worker.AcceptTime,
+            'status': worker.AssignmentStatus
+        }]
+        return worker_data
+
     def bonus_worker(self, assignment_id, amount, reason=""):
         ''' Bonus worker '''
         if not self.connect_to_turk():
@@ -454,7 +482,7 @@ class MTurkServices(object):
         try:
             self.mtc.approve_assignment(assignment_id, feedback=None)
             return True
-        except MTurkRequestError:
+        except MTurkRequestError as e:
             return False
 
     def reject_worker(self, assignment_id):
@@ -528,6 +556,14 @@ class MTurkServices(object):
         quals.add(
             PercentAssignmentsApprovedRequirement("GreaterThanOrEqualTo",
                                                   approve_requirement))
+        number_hits_approved = hit_config['number_hits_approved']
+        quals.add(
+            NumberHitsApprovedRequirement("GreaterThanOrEqualTo",
+                                            number_hits_approved))
+
+        require_master_workers = hit_config['require_master_workers']
+        if require_master_workers:
+            quals.add(MasterRequirement(sandbox=self.is_sandbox))
 
         if hit_config['us_only']:
             quals.add(LocaleRequirement("EqualTo", "US"))
@@ -596,7 +632,8 @@ class MTurkServices(object):
             self.configure_hit(hit_config)
             myhit = self.mtc.create_hit(**self.param_dict)[0]
             self.hitid = myhit.HITId
-        except:
+        except MTurkRequestError as e:
+            print e
             return False
         else:
             return self.hitid
@@ -660,3 +697,4 @@ class MTurkServices(object):
         except MTurkRequestError as exception:
             print exception.error_message
             return False
+

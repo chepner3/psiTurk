@@ -27,7 +27,7 @@ from models import Participant
 from sqlalchemy import or_, exc
 
 from psiturk_config import PsiturkConfig
-from experiment_errors import ExperimentError
+from experiment_errors import ExperimentError, InvalidUsage
 from psiturk.user_utils import nocache
 
 # Setup config
@@ -67,6 +67,8 @@ app.config.update(SEND_FILE_MAX_AGE_DEFAULT=10)
 app.secret_key = CONFIG.get('Server Parameters', 'secret_key')
 app.logger.info("Secret key: " + app.secret_key)
 
+
+
 # Serving warm, fresh, & sweet custom, user-provided routes
 # ==========================================================
 
@@ -105,6 +107,14 @@ def handle_exp_error(exception):
         "%s (%s) %s", exception.value, exception.errornum, str(dict(request.args)))
     return exception.error_page(request, CONFIG.get('HIT Configuration',
                                                     'contact_email_on_error'))
+
+# for use with API errors
+@app.errorhandler(InvalidUsage)
+def handle_invalid_usage(error):
+    response = jsonify(error.to_dict())
+    response.status_code = error.status_code
+    app.logger.error(error.message)
+    return response
 
 @app.teardown_request
 def shutdown_session(_=None):
@@ -289,12 +299,15 @@ def advertisement():
         # Once participants have finished the instructions, we do not allow
         # them to start the task again.
         raise ExperimentError('already_started_exp_mturk')
-    elif status == COMPLETED:
+    elif status == COMPLETED or (status == SUBMITTED and not already_in_db):
+        # 'or status == SUBMITTED' because we suspect that sometimes the post
+        # to mturk fails after we've set status to SUBMITTED, so really they
+        # have not successfully submitted. This gives another chance for the
+        # submit to work when not using the psiturk ad server.
         use_psiturk_ad_server = CONFIG.getboolean('Shell Parameters', 'use_psiturk_ad_server')
         if not use_psiturk_ad_server:
-            # They've finished the experiment but haven't submitted the HIT
-            # yet.. Turn asignmentId into original assignment id before sending it
-            # back to AMT
+            # They've finished the experiment but haven't successfully submitted the HIT
+            # yet.
             return render_template(
                 'thanks-mturksubmit.html',
                 using_sandbox=(mode == "sandbox"),
@@ -418,7 +431,8 @@ def start_exp():
             ipaddress=worker_ip,
             browser=browser,
             platform=platform,
-            language=language
+            language=language,
+            mode=mode
         )
         part = Participant(**participant_attributes)
         db_session.add(part)
@@ -477,7 +491,8 @@ def start_exp():
         condition=part.cond,
         counterbalance=part.counterbalance,
         adServerLoc=ad_server_location,
-        mode = mode
+        mode = mode,
+        contact_address=CONFIG.get('HIT Configuration', 'contact_email_on_error')
     )
 
 @app.route('/inexp', methods=['POST'])
@@ -611,10 +626,7 @@ def debug_complete():
         raise ExperimentError('improper_inputs')
     else:
         unique_id = request.args['uniqueId']
-        if unique_id[:5] == "debug":
-            debug_mode = True
-        else:
-            debug_mode = False
+        mode = request.args['mode']
         try:
             user = Participant.query.\
                 filter(Participant.uniqueid == unique_id).one()
@@ -625,10 +637,10 @@ def debug_complete():
         except:
             raise ExperimentError('error_setting_worker_complete')
         else:
-            if debug_mode:
-                return render_template('complete.html')
-            else: # send them back to mturk.
+            if (mode == 'sandbox' or mode == 'live'): # send them back to mturk.
                 return render_template('closepopup.html')
+            else:
+                return render_template('complete.html')
 
 @app.route('/worker_complete', methods=['GET'])
 def worker_complete():

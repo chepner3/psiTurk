@@ -546,7 +546,8 @@ class PsiturkNetworkShell(PsiturkShell):
 
         self.sandbox_hits = 0
         self.live_hits = 0
-        self.tally_hits()
+        if not quiet:
+            self.tally_hits()
         PsiturkShell.__init__(self, config, server)
 
         # Prevents running of commands by abbreviation
@@ -602,7 +603,10 @@ class PsiturkNetworkShell(PsiturkShell):
     def get_intro_prompt(self):
         ''' Overloads intro prompt with network-aware version if you can reach
         psiTurk.org, request system status message'''
-        server_msg = self.web_services.get_system_status()
+        if not self.quiet:
+            server_msg = self.web_services.get_system_status()
+        else:
+            server_msg = ''
         return server_msg + colorize('psiTurk version ' + version_number +
                                      '\nType "help" for more information.',
                                      'green', False)
@@ -669,19 +673,18 @@ class PsiturkNetworkShell(PsiturkShell):
         ''' List worker stats '''
         workers = None
         if submitted:
-            workers = self.amt_services.get_workers("Submitted")
+            workers = self.amt_services.get_workers("Submitted", chosen_hit)
         elif approved:
-            workers = self.amt_services.get_workers("Approved")
+            workers = self.amt_services.get_workers("Approved", chosen_hit)
         elif rejected:
-            workers = self.amt_services.get_workers("Rejected")
+            workers = self.amt_services.get_workers("Rejected", chosen_hit)
         else:
-            workers = self.amt_services.get_workers()
+            workers = self.amt_services.get_workers(chosen_hit=chosen_hit)
         if workers is False:
             print colorize('*** failed to get workers', 'red')
-        if chosen_hit:
-            workers = [worker for worker in workers if \
-                       worker['hitId'] == chosen_hit]
-            print 'listing workers for HIT', chosen_hit
+            return
+        #if chosen_hit:
+            #print 'listing workers for HIT', chosen_hit # printing messes up json
         if not len(workers):
             print "*** no workers match your request"
         else:
@@ -693,27 +696,52 @@ class PsiturkNetworkShell(PsiturkShell):
     def worker_approve(self, chosen_hit, assignment_ids=None):
         ''' Approve worker '''
         if chosen_hit:
-            workers = self.amt_services.get_workers("Submitted")
-            assignment_ids = [worker['assignmentId'] for worker in workers if \
-                              worker['hitId'] == chosen_hit]
+            workers = self.amt_services.get_workers("Submitted", chosen_hit)
             print 'approving workers for HIT', chosen_hit
-        for assignment_id in assignment_ids:
-            success = self.amt_services.approve_worker(assignment_id)
-            if success:
-                try:
-                    init_db()
-                    part = Participant.query.\
-                           filter(Participant.assignmentid == assignment_id).\
-                           filter(Participant.status == 4).\
-                           one()
-                    part.status = 5
-                    db_session.add(part)
-                    db_session.commit()
-                    print 'approved', assignment_id
-                except:
-                    print "*** approved but failed to update status in db for", assignment_id
-            else:
-                print '*** failed to approve', assignment_id
+        elif len(assignment_ids) == 1:
+            workers = self.amt_services.get_worker(assignment_ids[0])
+            if not workers:
+                print "No submissions found for requested assignment ID"
+        else:
+            workers = self.amt_services.get_workers("Submitted")
+            workers = [worker for worker in workers if worker['assignmentId'] in assignment_ids]
+            if not workers:
+                print "No submissions found for requested assignment ID's"
+        for worker in workers:
+            assignment_id = worker['assignmentId']
+            init_db()
+            found_worker = False
+            parts = Participant.query.\
+                   filter(Participant.assignmentid == assignment_id).\
+                   filter(Participant.status.in_([3, 4])).\
+                   all()
+            # Iterate through all the people who completed this assignment.
+            # This should be one person, and it should match the person who
+            # submitted the HIT, but that doesn't always hold.
+            for part in parts:
+                if part.workerid == worker['workerId']:
+                    found_worker = True
+                    success = self.amt_services.approve_worker(assignment_id)
+                    if success:
+                        part.status = 5
+                        db_session.add(part)
+                        print 'approved worker', part.workerid, 'for assignment', assignment_id
+                    else:
+                        print '*** failed to approve worker', part.workerid, 'for assignment', assignment_id
+                else:
+                    print 'found unexpected worker', part.workerid, 'for assignment', assignment_id
+            if not found_worker:
+                # approve workers not found in DB if the assignment id has been specified
+                if not chosen_hit:
+                    success = self.amt_services.approve_worker(assignment_id)
+                    if success:
+                        print 'approved worker', worker['workerId'], 'for assignment', assignment_id, 'but not found in DB'
+                    else:
+                        print '*** failed to approve worker', worker['workerId'], 'for assignment', assignment_id
+                # otherwise don't approve, and print warning
+                else:
+                    print 'worker', worker['workerId'], 'not found in DB for assignment', assignment_id + '. Not automatically approved.'
+            db_session.commit()
 
     def worker_reject(self, chosen_hit, assignment_ids = None):
         ''' Reject worker '''
@@ -750,45 +778,53 @@ class PsiturkNetworkShell(PsiturkShell):
                                    "will see this message: ")
             reason = user_input
         # Bonus already-bonused workers if the user explicitly lists their
-        # worker IDs
+        # assignment IDs
         override_status = True
         if chosen_hit:
             override_status = False
-            workers = self.amt_services.get_workers("Approved")
-            if workers is False:
+            workers = self.amt_services.get_workers("Approved", chosen_hit)
+            if not workers:
                 print "No approved workers for HIT", chosen_hit
                 return
-            assignment_ids = [worker['assignmentId'] for worker in workers if \
-                              worker['hitId'] == chosen_hit]
             print 'bonusing workers for HIT', chosen_hit
-        for assignment_id in assignment_ids:
+        elif len(assignment_ids) == 1:
+            workers = self.amt_services.get_worker(assignment_ids[0])
+            if not workers:
+                print "No submissions found for requested assignment ID"
+        else:
+            workers = self.amt_services.get_workers("Approved")
+            workers = [worker for worker in workers if \
+                              worker['assignmentId'] in assignment_ids]
+        for worker in workers:
+            assignment_id = worker['assignmentId']
             try:
                 init_db()
                 part = Participant.query.\
                        filter(Participant.assignmentid == assignment_id).\
+                       filter(Participant.workerid == worker['workerId']).\
                        filter(Participant.endhit != None).\
                        one()
                 if auto:
                     amount = part.bonus
                 status = part.status
                 if amount <= 0:
-                    print "bonus amount <=$0, no bonus given to", assignment_id
+                    print "bonus amount <=$0, no bonus given for assignment", assignment_id
                 elif status == 7 and not override_status:
-                    print "bonus already awarded to ", assignment_id
+                    print "bonus already awarded for assignment", assignment_id
                 else:
                     success = self.amt_services.bonus_worker(assignment_id,
                                                              amount, reason)
                     if success:
-                        print "gave bonus of $" + str(amount) + " to " + \
+                        print "gave bonus of $" + str(amount) + " for assignment " + \
                         assignment_id
                         part.status = 7
                         db_session.add(part)
                         db_session.commit()
                         db_session.remove()
                     else:
-                        print "*** failed to bonus", assignment_id
+                        print "*** failed to bonus assignment", assignment_id
             except:
-                print "*** failed to bonus", assignment_id
+                print "*** failed to bonus assignment", assignment_id
 
     # +-+.+-+.+-+.+-+.+-+.+-+.+-+.+-+.+-+.+-+.+-+.+-+.+-+.+-+.+-+.
     #   hit management
@@ -802,6 +838,21 @@ class PsiturkNetworkShell(PsiturkShell):
         with open(self.help_path + 'amt.txt', 'r') as help_text:
             print help_text.read()
 
+    def _estimate_expenses(self, num_workers, reward):
+        ''' Returns tuple describing expenses:
+        amount paid to workers
+        amount paid to amazon'''
+        
+        # fee structure changed 07.22.15:
+        # 20% for HITS with < 10 assignments
+        # 40% for HITS with >= 10 assignments
+        commission = 0.2
+        if float(num_workers) >= 10:
+            commission = 0.4 
+        work = float(num_workers) * float(reward)
+        fee = work * commission
+        return (work, fee, work+fee)
+    
     def hit_list(self, active_hits, reviewable_hits):
         ''' List hits. '''
         hits_data = []
@@ -891,7 +942,11 @@ class PsiturkNetworkShell(PsiturkShell):
             self.live_hits = num_hits
 
     def hit_create(self, numWorkers, reward, duration):
-
+        ''' Create a HIT '''
+        if self.sandbox:
+            mode = 'sandbox'
+        else:
+            mode = 'live'
         server_loc = str(self.config.get('Server Parameters', 'host'))
         inaccessible_but_do_it_anyways = False
         if not self.quiet:
@@ -949,8 +1004,7 @@ class PsiturkNetworkShell(PsiturkShell):
                 if user_input != 'y':
                     return
 
-        # Validate arguments
-        # numWorkers
+        # Argument retrieval and validation
         if numWorkers is None:
             numWorkers = raw_input('number of participants? ').strip()
         try:
@@ -962,7 +1016,6 @@ class PsiturkNetworkShell(PsiturkShell):
             print '*** number of participants must be greater than 0'
             return
 
-        # reward
         if reward is None:
             reward = raw_input('reward per HIT? ').strip()
         p = re.compile('^\d*\.\d\d$')
@@ -976,7 +1029,6 @@ class PsiturkNetworkShell(PsiturkShell):
             print '*** reward must be in format [dollars].[cents]'
             return
             
-        # duration
         if duration is None:
             duration = raw_input(
                 'duration of hit (in hours, it can be decimals)? ').strip()
@@ -988,10 +1040,23 @@ class PsiturkNetworkShell(PsiturkShell):
         if duration <= 0:
             print '*** duration must be greater than 0'
             return
+
+        _, fee, total = self._estimate_expenses(numWorkers, reward)
         
-
+        if not self.quiet:
+            dialog_query = '\n'.join(['*****************************',
+                                      '    Max workers: %d' % numWorkers,
+                                      '    Reward: $%.2f' % reward,
+                                      '    Duration: %s hours' % duration,
+                                      '    Fee: $%.2f' % fee,
+                                      '    ________________________',
+                                      '    Total: $%.2f' % total,
+                                      'Create %s HIT [y/n]? ' % colorize(mode, 'bold')])
+            if not self._confirm_dialog(dialog_query):
+                print '*** Cancelling HIT creation.'
+                return
+            
         if use_psiturk_ad_server:
-
             ad_id = self.create_psiturk_ad() 
             create_failed = False
             fail_msg = None
@@ -1011,8 +1076,6 @@ class PsiturkNetworkShell(PsiturkShell):
                 fail_msg = "  Unable to create Ad on http://ad.psiturk.org."
 
         else: # not using psiturk ad server
-
-            mode = 'sandbox' if self.sandbox else 'live'
             ad_location = "{}?mode={}".format(self.config.get('Shell Parameters', 'ad_location'), mode )
             hit_config = self.generate_hit_config(ad_location, numWorkers, reward, duration)
             create_failed = False
@@ -1032,27 +1095,11 @@ class PsiturkNetworkShell(PsiturkShell):
                 self.sandbox_hits += 1
             else:
                 self.live_hits += 1
-            # print results
-            # fee structure changed 07.22.15:
-            # 20% for HITS with < 10 assignments
-            # 40% for HITS with >= 10 assignments
-            commission = 0.2
-            if float(numWorkers) >= 10:
-                commission = 0.4 
-
-            total = float(numWorkers) * float(reward)
-            fee = total * commission
-            total = total + fee
-            mode = ''
-            if self.sandbox:
-                mode = 'sandbox'
-            else:
-                mode = 'live'
             print '\n'.join(['*****************************',
                              '  Creating %s HIT' % colorize(mode, 'bold'),
                              '    HITid: %s' % str(hit_id),
                              '    Max workers: %d' % numWorkers,
-                             '    Reward: $%d' % reward,
+                             '    Reward: $%.2f' % reward,
                              '    Duration: %s hours' % duration,
                              '    Fee: $%.2f' % fee,
                              '    ________________________',
@@ -1085,14 +1132,26 @@ class PsiturkNetworkShell(PsiturkShell):
             if self.sandbox:
                 mturk_url_base = 'https://workersandbox.mturk.com'
             else:
-                mturk_url_base = 'https://www.mturk.com'
-            mturk_url = '{}/mturk/searchbar?selectedSearchType=hitgroups&searchWords={}'.format(
-                mturk_url_base, urllib.quote_plus(str(self.config.get('HIT Configuration', 'title'))) )
+                mturk_url_base = 'https://worker.mturk.com'
+            mturk_url = '{}/projects?filters%5Bsearch_term%5D={}'.format(
+                mturk_url_base,
+                urllib.quote_plus(
+                    str(self.config.get('HIT Configuration', 'title'))))
 
             print('  MTurk URL: {}'.format(mturk_url) )
             print "Hint: In OSX, you can open a terminal link using cmd + click"
             if self.sandbox and use_psiturk_ad_server:
                 print "Note: This sandboxed ad will expire from the server in 16 days."
+    
+    def _confirm_dialog(self, prompt):
+        ''' Prompts for a 'yes' or 'no' to given prompt. '''
+        response = raw_input(prompt).strip().lower()
+        valid = {'y': True, 'ye': True, 'yes': True, 'n': False, 'no': False}
+        while True:
+            try:
+                return valid[response]
+            except:
+                response = raw_input("Please respond 'y' or 'n': ").strip().lower()
 
     def create_psiturk_ad(self):
         # register with the ad server (psiturk.org/ad/register) using POST
@@ -1168,7 +1227,9 @@ class PsiturkNetworkShell(PsiturkShell):
             "description": self.config.get('HIT Configuration', 'description'),
             "keywords": self.config.get('HIT Configuration', 'amt_keywords'),
             "reward": reward,
-            "duration": datetime.timedelta(hours=duration)
+            "duration": datetime.timedelta(hours=duration),
+            "number_hits_approved": self.config.get('HIT Configuration', 'number_hits_approved'),
+            "require_master_workers": self.config.getboolean('HIT Configuration','require_master_workers')
         }
         return hit_config
 
@@ -1756,8 +1817,12 @@ class PsiturkNetworkShell(PsiturkShell):
             self.worker_list(arg['--submitted'], arg['--approved'],
                              arg['--rejected'], arg['<hit_id>'])
         elif arg['bonus']:
+            if self.config.has_option('Shell Parameters', 'bonus_message'):
+                bonus_message = self.config.get('Shell Parameters', 'bonus_message')
+            else:
+                bonus_message = ""
             self.worker_bonus(arg['<hit_id>'], arg['--auto'], arg['<amount>'],
-                              "", arg['<assignment_id>'])
+                              bonus_message, arg['<assignment_id>'])
         else:
             self.help_worker()
 
