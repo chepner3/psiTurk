@@ -35,13 +35,14 @@ class Participant(Base):
     bonus = Column(Float, default = 0)
     status = Column(Integer, default = 1)
     mode = Column(String(128))
+    session = Column(Integer, default = 1)
     if 'postgres://' in config.get('Database Parameters', 'database_url').lower():
         datastring = Column(Text)
     else:
         datastring = Column(Text(4294967295))
 
     def __init__(self, **kwargs):
-        self.uniqueid = "{workerid}:{assignmentid}".format(**kwargs)
+        self.uniqueid = "{workerid}:{assignmentid}:{session}".format(**kwargs)
         for key in kwargs:
             setattr(self, key, kwargs[key])
         self.status = 1
