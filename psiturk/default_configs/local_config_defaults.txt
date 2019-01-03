@@ -24,6 +24,7 @@ port = 22362
 cutoff_time = 30
 logfile = server.log
 loglevel = 2
+record_ip = true
 debug = true
 login_username = examplename
 login_pw = examplepassword

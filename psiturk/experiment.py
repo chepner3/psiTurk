@@ -418,7 +418,9 @@ def start_exp():
         # Choose condition and counterbalance
         subj_cond, subj_counter = get_random_condcount(mode)
 
-        worker_ip = "UNKNOWN" if not request.remote_addr else \
+        record_ip = True if not CONFIG.has_option('Server Parameters', 'record_ip') else \
+            CONFIG.getboolean('Server Parameters', 'record_ip')
+        worker_ip = "UNKNOWN" if not record_ip or not request.remote_addr else \
             request.remote_addr
         browser = "UNKNOWN" if not request.user_agent.browser else \
             request.user_agent.browser
