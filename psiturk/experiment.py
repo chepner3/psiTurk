@@ -390,10 +390,13 @@ def start_exp():
     assignment_id = request.args['assignmentId']
     worker_id = request.args['workerId']
     mode = request.args['mode']
-    app.logger.info("Accessing /exp: %(h)s %(a)s %(w)s " % {
+    session = 1 if not (('session' in request.args) and request.args['session'].isdigit()) else \
+        int(request.args['session'])
+    app.logger.info("Accessing /exp: %(h)s %(a)s %(w)s %(n)d " % {
         "h" : hit_id,
         "a": assignment_id,
-        "w": worker_id
+        "w": worker_id,
+        "n": session
     })
     if hit_id[:5] == "debug":
         debug_mode = True
@@ -407,10 +410,12 @@ def start_exp():
         matches = Participant.query.\
             filter(Participant.workerid == worker_id).\
             filter(Participant.assignmentid == assignment_id).\
+            filter(Participant.session == session).\
             all()
     else:
         matches = Participant.query.\
             filter(Participant.workerid == worker_id).\
+            filter(Participant.session == session).\
             all()
 
     numrecs = len(matches)
@@ -440,7 +445,8 @@ def start_exp():
             browser=browser,
             platform=platform,
             language=language,
-            mode=mode
+            mode=mode,
+            session=session
         )
         part = Participant(**participant_attributes)
         db_session.add(part)
@@ -500,6 +506,7 @@ def start_exp():
         counterbalance=part.counterbalance,
         adServerLoc=ad_server_location,
         mode = mode,
+        session = session,
         contact_address=CONFIG.get('HIT Configuration', 'contact_email_on_error')
     )
 
