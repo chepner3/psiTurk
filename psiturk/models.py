@@ -42,7 +42,10 @@ class Participant(Base):
         datastring = Column(Text(4294967295))
 
     def __init__(self, **kwargs):
-        self.uniqueid = "{workerid}:{assignmentid}:{session}".format(**kwargs)
+        if 'session' in kwargs and kwargs['session'] > 1:
+            self.uniqueid = "{workerid}:{assignmentid}:{session}".format(**kwargs)
+        else:
+            self.uniqueid = "{workerid}:{assignmentid}".format(**kwargs)
         for key in kwargs:
             setattr(self, key, kwargs[key])
         self.status = 1
