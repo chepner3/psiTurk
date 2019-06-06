@@ -38,7 +38,7 @@ if config.has_option('Database Parameters', 'database_logfile') and config.has_o
 	database_logger.addHandler(database_handler)
 	database_logger.setLevel(database_loglevel)
 
-engine = create_engine(DATABASE, echo=False, pool_recycle=3600, pool_pre_ping=True) 
+engine = create_engine(DATABASE, echo=False, pool_recycle=3600, pool_pre_ping=True, pool_size=20) 
 db_session = scoped_session(sessionmaker(autocommit=False,
                                          autoflush=False,
                                          bind=engine))
