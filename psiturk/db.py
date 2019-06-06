@@ -33,6 +33,7 @@ if config.has_option('Database Parameters', 'database_logfile') and config.has_o
 	database_loglevel = config.getint('Database Parameters', 'database_loglevel')
 	database_handler = logging.FileHandler(database_logfile)
 	database_handler.setLevel(database_loglevel)
+	database_handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
 	database_logger = logging.getLogger('sqlalchemy')
 	database_logger.addHandler(database_handler)
 	database_logger.setLevel(database_loglevel)
