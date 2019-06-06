@@ -63,7 +63,7 @@ app = Flask("Experiment_Server")
 
 # Use the gunicorn error log
 gunicorn_error_logger = logging.getLogger('gunicorn.error')
-app.logger.handlers.extend(gunicorn_error_logger.handlers)
+app.logger.handlers = gunicorn_error_logger.handlers
 app.logger.setLevel(LOG_LEVEL)
 
 # Set cache timeout to 10 seconds for static files
