@@ -29,7 +29,6 @@ if 'mysql://' in DATABASE.lower():
 
 # set up logging
 if config.has_option('Database Parameters', 'database_logfile') and config.has_option('Database Parameters', 'database_loglevel'):
-	logging_enabled = True
 	database_logfile = config.get('Database Parameters', 'database_logfile')
 	database_loglevel = config.getint('Database Parameters', 'database_loglevel')
 	database_handler = logging.FileHandler(database_logfile)
@@ -37,10 +36,8 @@ if config.has_option('Database Parameters', 'database_logfile') and config.has_o
 	database_logger = logging.getLogger('sqlalchemy')
 	database_logger.addHandler(database_handler)
 	database_logger.setLevel(database_loglevel)
-else:
-	logging_enabled = False
 
-engine = create_engine(DATABASE, echo=logging_enabled, pool_recycle=3600, pool_pre_ping=True) 
+engine = create_engine(DATABASE, echo=False, pool_recycle=3600, pool_pre_ping=True) 
 db_session = scoped_session(sessionmaker(autocommit=False,
                                          autoflush=False,
                                          bind=engine))
