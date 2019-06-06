@@ -3,6 +3,7 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.ext.declarative import declarative_base
 from psiturk_config import PsiturkConfig
 import re, os
+import logging
 
 config = PsiturkConfig()
 config.load_config()
@@ -26,7 +27,20 @@ if 'mysql://' in DATABASE.lower():
 	# the pymysql package
 	DATABASE = DATABASE.replace('mysql://', 'mysql+pymysql://')
 
-engine = create_engine(DATABASE, echo=False, pool_recycle=3600, pool_pre_ping=True) 
+# set up logging
+if config.has_option('Database Parameters', 'database_logfile') and config.has_option('Database Parameters', 'database_loglevel'):
+	logging_enabled = True
+	database_logfile = config.get('Database Parameters', 'database_logfile')
+	database_loglevel = config.getint('Database Parameters', 'database_loglevel')
+	database_handler = logging.FileHandler(database_logfile)
+	database_handler.setLevel(database_loglevel)
+	database_logger = logging.getLogger('sqlalchemy')
+	database_logger.addHandler(database_handler)
+	database_logger.setLevel(database_loglevel)
+else:
+	logging_enabled = False
+
+engine = create_engine(DATABASE, echo=logging_enabled, pool_recycle=3600, pool_pre_ping=True) 
 db_session = scoped_session(sessionmaker(autocommit=False,
                                          autoflush=False,
                                          bind=engine))
