@@ -98,7 +98,10 @@ class ExperimentServerController:
 
     def get_ppid(self):
         if not self.is_port_available():
-            url = "http://{hostname}:{port}/ppid".format(hostname=self.config.get("Server Parameters", "host"), port=self.config.getint("Server Parameters", "port"))
+            if self.config.has_option("Server Parameters", "adserver_revproxy_host") and self.config.has_option("Server Parameters", "adserver_revproxy_port"):
+                url = "http://{hostname}:{port}/ppid".format(hostname=self.config.get("Server Parameters", "adserver_revproxy_host"), port=self.config.getint("Server Parameters", "adserver_revproxy_port"))
+            else:
+                url = "http://{hostname}:{port}/ppid".format(hostname=self.config.get("Server Parameters", "host"), port=self.config.getint("Server Parameters", "port"))
             ppid_request = urllib2.Request(url)
             ppid =  urllib2.urlopen(ppid_request).read()
             return ppid
