@@ -20,6 +20,7 @@ except ImportError:
 # Setup flask
 from flask import Flask, render_template, render_template_string, request, \
     jsonify
+from flask.logging import default_handler
 
 # Setup database
 from db import db_session, init_db
@@ -64,6 +65,7 @@ app = Flask("Experiment_Server")
 # Use the gunicorn error log
 gunicorn_error_logger = logging.getLogger('gunicorn.error')
 app.logger.handlers = gunicorn_error_logger.handlers
+app.logger.removeHandler(default_handler)
 app.logger.setLevel(LOG_LEVEL)
 
 # Set cache timeout to 10 seconds for static files
