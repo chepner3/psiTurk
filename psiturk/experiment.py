@@ -24,7 +24,7 @@ except ImportError:
 
 # Setup flask
 from flask import Flask, render_template, render_template_string, request, \
-    jsonify
+    jsonify, Response
 from flask.logging import default_handler
 
 # Setup database
@@ -198,7 +198,7 @@ def favicon():
 @app.route('/static/js/psiturk.js')
 def psiturk_js():
     ''' psiTurk js route '''
-    return render_template_string(PSITURK_JS_CODE)
+    return Response(PSITURK_JS_CODE, mimetype='application/javascript')
 
 
 @app.route('/check_worker_status', methods=['GET'])
