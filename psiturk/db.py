@@ -1,19 +1,18 @@
+from __future__ import print_function
+from __future__ import absolute_import
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.ext.declarative import declarative_base
-from psiturk_config import PsiturkConfig
-import re, os
+from .psiturk_config import PsiturkConfig
+import re
+import os
+import sys
 import logging
 
 config = PsiturkConfig()
 config.load_config()
 
-r = re.compile("OPENSHIFT_(.+)_DB_URL") # Might be MYSQL or POSTGRESQL
-matches = filter(r.match, os.environ)
-if matches:
-    DATABASE = "{}{}".format(os.environ[matches[0]], os.environ['OPENSHIFT_APP_NAME'])
-else:
-    DATABASE = config.get('Database Parameters', 'database_url')
+DATABASE = config.get('Database Parameters', 'database_url')
 
 if 'mysql://' in DATABASE.lower():
 	try:
@@ -22,7 +21,7 @@ if 'mysql://' in DATABASE.lower():
 		print("To use a MySQL database you need to install "
 			  "the `pymysql` python package.  Try `pip install "
 			  "pymysql`.")
-		exit()
+		sys.exit()
 	# internally use `mysql+pymysql://` so sqlalchemy talks to
 	# the pymysql package
 	DATABASE = DATABASE.replace('mysql://', 'mysql+pymysql://')
@@ -38,7 +37,7 @@ if config.has_option('Database Parameters', 'database_logfile') and config.has_o
 	database_logger.addHandler(database_handler)
 	database_logger.setLevel(database_loglevel)
 
-engine = create_engine(DATABASE, echo=False, pool_recycle=3600, pool_pre_ping=True, pool_size=20) 
+engine = create_engine(DATABASE, echo=False, pool_recycle=3600, pool_pre_ping=True, pool_size=20)
 db_session = scoped_session(sessionmaker(autocommit=False,
                                          autoflush=False,
                                          bind=engine))
@@ -46,6 +45,13 @@ db_session = scoped_session(sessionmaker(autocommit=False,
 Base = declarative_base()
 Base.query = db_session.query_property()
 
+
 def init_db():
     #print "Initalizing db if necessary."
     Base.metadata.create_all(bind=engine)
+
+
+def truncate_tables():
+    for table in Base.metadata.sorted_tables:
+        db_session.execute(table.delete(bind=engine))
+    db_session.commit()
