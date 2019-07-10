@@ -1,0 +1,26 @@
+{% extends "dashboard/base.html" %}
+{% block layout %}
+
+
+<header></header>
+<div class='container'>
+    <div class='row'>
+        <nav class='sidebar col-md-2 d-block'>
+            <ul class='nav flex-column'>
+                <li class='nav-item'>
+                    <a class='nav-link' href='#'><span class='oi oi-home'></span> Dashboard</a>
+                </li>
+            </ul>
+        </nav>
+        <div class='main col-md-9 col-lg-10 px-4'>
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+</div>
+<footer></footer>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/vue@2.6.10/dist/vue.js"></script>
+<script src="https://d3js.org/d3-array.v2.min.js"></script>
+{% endblock %}
